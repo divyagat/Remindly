@@ -1,4 +1,5 @@
 import { isSameDay } from "date-fns";
+import type { DragEvent } from "react";
 import { isOverdue, type Task } from "@/lib/tasks";
 
 export type CalendarMode = "month" | "week" | "day" | "list";
@@ -27,3 +28,19 @@ export function tasksOnDay(tasks: Task[], day: Date): Task[] {
 }
 
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+// Tasks can be dragged around the calendar (mouse only) to change their day or time.
+const DRAG_TYPE = "application/x-remindly-task";
+
+export function startTaskDrag(event: DragEvent, task: Task) {
+  event.dataTransfer.setData(DRAG_TYPE, task.id);
+  event.dataTransfer.effectAllowed = "move";
+}
+
+/** The dragged task's id; during dragover only the type is readable, so this returns "" then. */
+export function draggedTaskId(event: DragEvent): string | null {
+  if (!event.dataTransfer.types.includes(DRAG_TYPE)) {
+    return null;
+  }
+  return event.dataTransfer.getData(DRAG_TYPE);
+}

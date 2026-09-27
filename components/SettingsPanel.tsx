@@ -1,15 +1,16 @@
 "use client";
 
 import { set } from "date-fns";
-import { Volume2 } from "lucide-react";
-import { useReducer, useSyncExternalStore } from "react";
+import { Download, Upload, Volume2 } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
 import NotificationPermission from "@/components/NotificationPermission";
 import { card, chip, input } from "@/components/ui";
+import { downloadBackup, restoreBackup } from "@/lib/backup";
 import { buildBriefing, briefingText } from "@/lib/briefing";
 import { REMINDER_KINDS } from "@/lib/reminder";
 import { updateSettings, useSettings } from "@/lib/settings";
 import { clearCompleted, useTasks } from "@/lib/tasks";
-import { announce, isVoiceEnabled, setVoiceEnabled, voiceSupported } from "@/lib/voice";
+import { announce, setVoiceEnabled, useVoiceEnabled, voiceSupported } from "@/lib/voice";
 
 const noSubscription = () => () => {};
 
@@ -76,10 +77,10 @@ function PlayButton({ text, label }: { text: string; label: string }) {
 export default function SettingsPanel() {
   const tasks = useTasks();
   const settings = useSettings();
-  const [, rerender] = useReducer((count: number) => count + 1, 0);
   const speechSupported = useSyncExternalStore(noSubscription, voiceSupported, () => true);
-  const voiceOn = useSyncExternalStore(noSubscription, isVoiceEnabled, () => true);
+  const voiceOn = useVoiceEnabled();
   const completedCount = tasks.filter((task) => task.completed).length;
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
 
   const summaries = [
     {
@@ -106,7 +107,7 @@ export default function SettingsPanel() {
     <div className="space-y-8">
       <Group title="Reminders">
         {speechSupported && (
-          <Row title="Speak reminders aloud" hint="A chime, then the task is read out">
+          <Row title="Voice reminders" hint={voiceOn ? "A chime, then the task is read out" : "Off: reminders only pop up, silently"}>
             <div className="flex items-center gap-1">
               <PlayButton
                 label="Test voice"
@@ -115,10 +116,7 @@ export default function SettingsPanel() {
               <Switch
                 label="Speak reminders aloud"
                 on={voiceOn}
-                onChange={(on) => {
-                  setVoiceEnabled(on);
-                  rerender();
-                }}
+                onChange={setVoiceEnabled}
               />
             </div>
           </Row>
@@ -198,6 +196,39 @@ export default function SettingsPanel() {
       </Group>
 
       <Group title="Your data">
+        <Row title="Back up" hint="Save all tasks and settings to a file">
+          <button
+            type="button"
+            onClick={downloadBackup}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950"
+          >
+            <Download className="h-4 w-4" /> Download
+          </button>
+        </Row>
+        <Row
+          title="Restore"
+          hint={restoreMessage ?? "Load a backup file, e.g. on a new phone or computer. Your current tasks are kept."}
+        >
+          <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950">
+            <Upload className="h-4 w-4" /> Choose file
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                try {
+                  const count = await restoreBackup(file);
+                  setRestoreMessage(`✓ Restored ${count} task${count === 1 ? "" : "s"}.`);
+                } catch (error) {
+                  setRestoreMessage(`✗ ${(error as Error).message}`);
+                }
+              }}
+            />
+          </label>
+        </Row>
         <Row
           title="Completed tasks"
           hint={`${tasks.length} task${tasks.length === 1 ? "" : "s"} saved on this device, ${completedCount} done`}

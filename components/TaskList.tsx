@@ -60,7 +60,7 @@ export default function TaskList() {
       <div className="flex flex-col items-center px-6 py-14 text-center">
         <span className="text-4xl">📝</span>
         <p className="mt-3 font-semibold">No tasks yet</p>
-        <p className="mt-1 max-w-xs text-sm text-zinc-500">Type what you need to remember in the box above.</p>
+        <p className="mt-1 max-w-xs text-sm text-zinc-500">Type it in the box above — try “Call mom tomorrow at 5pm”.</p>
       </div>
     );
   }

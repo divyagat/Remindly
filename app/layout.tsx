@@ -24,7 +24,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#18181b",
+  // Lets the layout use the full screen on notched phones (see the safe-area padding).
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#18181b" },
+  ],
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
@@ -44,7 +49,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <OfflineSupport />
           {session && <SoundBanner />}
           {/* Bottom padding keeps content clear of the phone tab bar. */}
-          <main className={`flex flex-1 flex-col ${session ? "pb-28 md:pb-0" : ""}`}>{children}</main>
+          <main className={`flex flex-1 flex-col ${session ? "pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0" : ""}`}>{children}</main>
         </div>
         <ReminderPopup />
       </body>

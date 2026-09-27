@@ -1,7 +1,7 @@
 "use client";
 
 import { format, isToday, isTomorrow, isYesterday } from "date-fns";
-import { Bell, Check, Repeat2 } from "lucide-react";
+import { AlarmClockOff, Bell, Check, Repeat2 } from "lucide-react";
 import { useState } from "react";
 import TaskForm from "@/components/TaskForm";
 import { card } from "@/components/ui";
@@ -44,7 +44,7 @@ export default function TaskCard({ task, showDay = true }: TaskCardProps) {
         type="button"
         aria-label={task.completed ? "Mark as not done" : "Mark as done"}
         onClick={() => toggleTask(task.id)}
-        className="flex shrink-0 items-center self-stretch pl-4"
+        className="flex shrink-0 items-center self-stretch pr-1 pl-3.5 sm:pl-4"
       >
         <span
           className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition active:scale-90 ${
@@ -64,7 +64,7 @@ export default function TaskCard({ task, showDay = true }: TaskCardProps) {
         type="button"
         onClick={() => setEditing(true)}
         aria-label={`Edit ${task.title}`}
-        className="min-w-0 flex-1 py-3 pr-4 text-left"
+        className="min-w-0 flex-1 py-3 pr-3.5 text-left sm:py-3.5 sm:pr-4"
       >
         <p
           className={`break-words leading-snug ${
@@ -77,13 +77,19 @@ export default function TaskCard({ task, showDay = true }: TaskCardProps) {
           )}
         </p>
         {!task.completed && (when || task.repeat !== "none" || task.notes) && (
-          <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-zinc-500">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-zinc-500">
             {when && (
               <span className={`tabular-nums ${overdue ? "font-medium text-rose-600 dark:text-rose-400" : ""}`}>
                 {when}
               </span>
             )}
             {when && remindersLeft && <Bell className="h-3 w-3 shrink-0" aria-label="Reminders set" />}
+            {task.snoozedUntil && (
+              <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
+                <AlarmClockOff className="h-3.5 w-3.5 shrink-0" />
+                Snoozed until {formatTime(new Date(task.snoozedUntil))}
+              </span>
+            )}
             {task.repeat !== "none" && (
               <span className="inline-flex items-center gap-0.5">
                 <Repeat2 className="h-3.5 w-3.5 shrink-0" />
@@ -91,7 +97,7 @@ export default function TaskCard({ task, showDay = true }: TaskCardProps) {
               </span>
             )}
             {task.notes && (
-              <span className="truncate">
+              <span className="max-w-full min-w-0 truncate">
                 {(when || task.repeat !== "none") && "· "}
                 {task.notes}
               </span>

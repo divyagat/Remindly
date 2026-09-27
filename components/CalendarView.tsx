@@ -8,10 +8,11 @@ import {
   format,
   isSameMonth,
   isToday,
+  set,
   startOfDay,
   startOfWeek,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Plus, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import ListView from "@/components/calendar/ListView";
 import MonthView from "@/components/calendar/MonthView";
@@ -20,8 +21,8 @@ import TimeGrid from "@/components/calendar/TimeGrid";
 import Sheet from "@/components/Sheet";
 import TaskCard from "@/components/TaskCard";
 import TaskForm from "@/components/TaskForm";
-import { card, primaryButton } from "@/components/ui";
-import { useTasks, type Task } from "@/lib/tasks";
+import { card, primaryButton, secondaryButton } from "@/components/ui";
+import { moveTask, toggleTask, useTasks, type Task } from "@/lib/tasks";
 import { useNow } from "@/lib/useNow";
 
 const MODES: { mode: CalendarMode; label: string }[] = [
@@ -76,6 +77,21 @@ export default function CalendarView() {
 
   function openTaskDialog(task: Task) {
     setOpenTaskId(task.id);
+  }
+
+  /** Keeps the time of day when a task is dropped on another day (month view). */
+  function moveToDay(taskId: string, day: Date) {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task?.dueAt) return;
+    const due = new Date(task.dueAt);
+    moveTask(taskId, set(day, { hours: due.getHours(), minutes: due.getMinutes(), seconds: 0, milliseconds: 0 }));
+  }
+
+  /** Keeps the minutes when a task is dropped on another hour (week and day views). */
+  function moveToHour(taskId: string, day: Date, hour: number) {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task?.dueAt) return;
+    moveTask(taskId, set(day, { hours: hour, minutes: new Date(task.dueAt).getMinutes(), seconds: 0, milliseconds: 0 }));
   }
 
   function addAt(day: Date, hour?: number) {
@@ -143,33 +159,40 @@ export default function CalendarView() {
       </div>
 
       {mode === "month" && (
-        <>
+        // Big screens: the chosen day's tasks sit beside the month instead of below it.
+        <div className="space-y-4 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6 lg:space-y-0">
           <MonthView
             month={date}
             selected={date}
             tasks={tasks}
             onSelectDay={(day) => setFocus(day)}
             onOpenTask={openTaskDialog}
+            onAddDay={(day) => addAt(day)}
+            onMoveTask={moveToDay}
           />
           {/* Tasks for the chosen day (the month grid only has room for a few). */}
-          <section className="space-y-3">
+          <section className="space-y-3 lg:sticky lg:top-24">
             <h2 className="flex items-baseline gap-2 font-semibold">
               {isToday(date) ? "Today" : format(date, "EEEE d MMMM")}
               <span className="text-sm font-normal text-zinc-500">
                 {selectedTasks.length} task{selectedTasks.length === 1 ? "" : "s"}
               </span>
             </h2>
+            {/* Type a title and press Enter to add it to this day. */}
+            <div className={`${card} p-3`}>
+              <TaskForm key={format(date, "yyyy-MM-dd")} compact defaultDate={format(date, "yyyy-MM-dd")} />
+            </div>
             {selectedTasks.length === 0 ? (
-              <p className="py-6 text-center text-sm text-zinc-500">Nothing planned for this day.</p>
+              <p className="py-4 text-center text-sm text-zinc-500">Nothing planned for this day yet.</p>
             ) : (
-              <ul className="grid gap-2 lg:grid-cols-2">
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
                 {selectedTasks.map((task) => (
                   <TaskCard key={task.id} task={task} showDay={false} />
                 ))}
               </ul>
             )}
           </section>
-        </>
+        </div>
       )}
 
       {mode === "week" && (
@@ -179,6 +202,7 @@ export default function CalendarView() {
           now={nowMs}
           onOpenTask={openTaskDialog}
           onAddAt={addAt}
+          onMoveTask={moveToHour}
           onSelectDay={(day) => {
             setFocus(day);
             setMode("day");
@@ -187,7 +211,14 @@ export default function CalendarView() {
       )}
 
       {mode === "day" && (
-        <TimeGrid days={[date]} tasks={tasks} now={nowMs} onOpenTask={openTaskDialog} onAddAt={addAt} />
+        <TimeGrid
+          days={[date]}
+          tasks={tasks}
+          now={nowMs}
+          onOpenTask={openTaskDialog}
+          onAddAt={addAt}
+          onMoveTask={moveToHour}
+        />
       )}
 
       {mode === "list" && <ListView month={date} tasks={tasks} />}
@@ -202,11 +233,32 @@ export default function CalendarView() {
         <Plus className="h-7 w-7" />
       </button>
 
-      <Sheet open={Boolean(openTask)} onClose={() => setOpenTaskId(null)} title="Task">
+      {/* Tapping a task in the calendar opens it straight into editing. */}
+      <Sheet open={Boolean(openTask)} onClose={() => setOpenTaskId(null)} title="Edit task">
         {openTask && (
-          <ul>
-            <TaskCard task={openTask} />
-          </ul>
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => {
+                toggleTask(openTask.id);
+                setOpenTaskId(null);
+              }}
+              className={`${secondaryButton} w-full py-2.5 ${
+                openTask.completed ? "" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950"
+              }`}
+            >
+              {openTask.completed ? (
+                <>
+                  <RotateCcw className="h-4 w-4" /> Mark as not done
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" /> Mark as done
+                </>
+              )}
+            </button>
+            <TaskForm key={openTask.id} task={openTask} onDone={() => setOpenTaskId(null)} />
+          </div>
         )}
       </Sheet>
 

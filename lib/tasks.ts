@@ -22,6 +22,8 @@ export interface Task {
   firedReminders: ReminderKey[];
   /** When the "still not done" reminder was last given for this overdue task. */
   lastNaggedAt: string | null;
+  /** Snoozed from a reminder popup: remind again at this time (ISO string). */
+  snoozedUntil: string | null;
   /** How the task comes back after it's done. */
   repeat: Repeat;
   /** For a finished repeating task: the id of the next occurrence it created. */
@@ -51,6 +53,7 @@ const LEGACY_MINUTES_TO_KEY: Record<number, ReminderKey> = {
 function normalize(raw: Task & { remindMinutesBefore?: number | null; remindedAt?: string | null }): Task {
   if (Array.isArray(raw.reminders)) {
     raw.lastNaggedAt ??= null;
+    raw.snoozedUntil ??= null;
     raw.repeat ??= "none";
     raw.nextId ??= null;
     return raw;
@@ -63,6 +66,7 @@ function normalize(raw: Task & { remindMinutesBefore?: number | null; remindedAt
     reminders,
     firedReminders: remindedAt ? reminders : [],
     lastNaggedAt: null,
+    snoozedUntil: null,
     repeat: "none",
     nextId: null,
   };
@@ -135,6 +139,7 @@ export function addTask(input: TaskInput): Task {
     id: newId(),
     firedReminders: passedReminders(input.reminders, input.dueAt, getSettings().bedtime),
     lastNaggedAt: repeatStart(input.dueAt),
+    snoozedUntil: null,
     nextId: null,
     completed: false,
     completedAt: null,
@@ -160,9 +165,47 @@ export function editTask(id: string, input: TaskInput) {
           ...input,
           firedReminders: passedReminders(input.reminders, input.dueAt, getSettings().bedtime),
           lastNaggedAt: repeatStart(input.dueAt),
+          snoozedUntil: null,
         }
       : input,
   );
+}
+
+/** Moves a task to a new time (e.g. dragged in the calendar); its reminders are rescheduled. */
+export function moveTask(id: string, dueAt: Date) {
+  const task = read().find((t) => t.id === id);
+  if (!task) {
+    return;
+  }
+  const { title, notes, priority, reminders, repeat } = task;
+  editTask(id, { title, notes, priority, reminders, repeat, dueAt: dueAt.toISOString() });
+}
+
+/** "Remind me later" from a reminder popup. */
+export function snoozeTask(id: string, until: Date) {
+  updateTask(id, { snoozedUntil: until.toISOString() });
+}
+
+/**
+ * Adds tasks from a backup file. Tasks already here (same id) are replaced by the
+ * backup's copy; everything else is kept. Returns how many tasks were imported.
+ */
+export function importTasks(data: unknown): number {
+  if (!Array.isArray(data)) {
+    throw new Error("This file doesn't contain Remindly tasks.");
+  }
+  const imported = data
+    .filter(
+      (item): item is Task =>
+        typeof item === "object" && item !== null && typeof item.id === "string" && typeof item.title === "string",
+    )
+    .map((item) => normalize({ ...item }));
+  if (data.length > 0 && imported.length === 0) {
+    throw new Error("This file doesn't contain Remindly tasks.");
+  }
+  const ids = new Set(imported.map((task) => task.id));
+  write([...imported, ...read().filter((task) => !ids.has(task.id))]);
+  return imported.length;
 }
 
 export function toggleTask(id: string) {
@@ -186,6 +229,7 @@ export function toggleTask(id: string) {
                 nextId: null,
                 // Un-ticking an overdue task shouldn't make it nag instantly.
                 lastNaggedAt: repeatStart(t.dueAt),
+                snoozedUntil: null,
               }
             : t,
         ),
@@ -207,6 +251,7 @@ export function toggleTask(id: string) {
     dueAt,
     firedReminders: passedReminders(task.reminders, dueAt, getSettings().bedtime),
     lastNaggedAt: null,
+    snoozedUntil: null,
     nextId: null,
     completed: false,
     completedAt: null,

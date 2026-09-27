@@ -1,11 +1,12 @@
 "use client";
 
 import { addDays, format, parseISO } from "date-fns";
-import { CalendarDays, ChevronDown, Clock, Plus, Trash2, X } from "lucide-react";
+import { CalendarDays, ChevronDown, Clock, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { chip, input, PRIORITY_STYLES, primaryButton, secondaryButton } from "@/components/ui";
 import { formatTime, REMINDER_KINDS, type ReminderKey } from "@/lib/reminder";
-import { REPEAT_OPTIONS, type Repeat } from "@/lib/repeat";
+import { parseWhen } from "@/lib/parse";
+import { REPEAT_OPTIONS, repeatLabel, type Repeat } from "@/lib/repeat";
 import { useSettings } from "@/lib/settings";
 import { addTask, deleteTask, editTask, type Priority, type Task } from "@/lib/tasks";
 
@@ -53,7 +54,13 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
 
   const today = dateKey(new Date());
   const tomorrow = dateKey(addDays(new Date(), 1));
-  const pickedOtherDate = date !== "" && date !== today && date !== tomorrow;
+  // New tasks understand dates typed into the title ("Call mom tomorrow at 5pm"); anything
+  // picked with the buttons below wins over what was typed.
+  const typed = task ? null : parseWhen(title);
+  const whenDate = date || typed?.date || "";
+  const whenTime = time || typed?.time || "";
+  const whenRepeat = repeat !== "none" ? repeat : (typed?.repeat ?? "none");
+  const pickedOtherDate = whenDate !== "" && whenDate !== today && whenDate !== tomorrow;
   const expanded = !compact || title.trim() !== "";
 
   function toggleReminder(key: ReminderKey) {
@@ -78,15 +85,15 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
       return;
     }
     // A time (or a repeat) without a date means today; a date without a time means 9:00 AM.
-    const dueDate = date || (time || repeat !== "none" ? today : "");
-    const dueAt = dueDate ? new Date(`${dueDate}T${time || "09:00"}`).toISOString() : null;
+    const dueDate = whenDate || (whenTime || whenRepeat !== "none" ? today : "");
+    const dueAt = dueDate ? new Date(`${dueDate}T${whenTime || "09:00"}`).toISOString() : null;
     const values = {
-      title: trimmed,
+      title: typed?.title ?? trimmed,
       notes: notes.trim(),
       priority,
       dueAt,
       reminders: REMINDER_KINDS.map((kind) => kind.key).filter((key) => reminders.includes(key)),
-      repeat,
+      repeat: whenRepeat,
     };
     if (task) {
       editTask(task.id, values);
@@ -109,7 +116,8 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && compact && reset()}
-          className={`${input} py-3 text-base`}
+          enterKeyHint={task ? "done" : "enter"}
+          className={`${input} min-w-0 py-3 text-base`}
         />
         {compact && (
           <button type="submit" aria-label="Add task" disabled={!expanded} className={`${primaryButton} shrink-0 px-3.5`}>
@@ -118,23 +126,33 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
         )}
       </div>
 
+      {typed && typed.title !== title.trim() && (
+        <p className="-mt-2 flex items-center gap-1.5 px-1 text-sm text-indigo-600 dark:text-indigo-400">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            Saves as “{typed.title}”
+            {typed.repeat && ` · ${repeatLabel(typed.repeat).toLowerCase()}`}
+          </span>
+        </p>
+      )}
+
       {expanded && (
         <div className="animate-fade-in space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setDate(date === today ? "" : today)} className={chip(date === today)}>
+            <button type="button" onClick={() => setDate(date === today ? "" : today)} className={chip(whenDate === today)}>
               Today
             </button>
             <button
               type="button"
               onClick={() => setDate(date === tomorrow ? "" : tomorrow)}
-              className={chip(date === tomorrow)}
+              className={chip(whenDate === tomorrow)}
             >
               Tomorrow
             </button>
             {/* The real date/time inputs sit invisibly on top of friendly chips. */}
             <span className={chip(pickedOtherDate)}>
               <CalendarDays className="h-4 w-4" />
-              {pickedOtherDate ? format(parseISO(date), "EEE d MMM") : "Pick date"}
+              {pickedOtherDate ? format(parseISO(whenDate), "EEE d MMM") : "Pick date"}
               <input
                 type="date"
                 aria-label="Due date"
@@ -144,9 +162,9 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
                 className="absolute inset-0 cursor-pointer opacity-0"
               />
             </span>
-            <span className={chip(Boolean(time))}>
+            <span className={chip(Boolean(whenTime))}>
               <Clock className="h-4 w-4" />
-              {time ? formatTime(new Date(`2000-01-01T${time}`)) : "Add time"}
+              {whenTime ? formatTime(new Date(`2000-01-01T${whenTime}`)) : "Add time"}
               <input
                 type="time"
                 aria-label="Due time"
@@ -187,9 +205,9 @@ export default function TaskForm({ task, onDone, defaultDate, defaultTime, autoF
                     <button
                       key={option.value}
                       type="button"
-                      aria-pressed={repeat === option.value}
+                      aria-pressed={whenRepeat === option.value}
                       onClick={() => setRepeat(option.value)}
-                      className={chip(repeat === option.value)}
+                      className={chip(whenRepeat === option.value)}
                     >
                       {option.label}
                     </button>

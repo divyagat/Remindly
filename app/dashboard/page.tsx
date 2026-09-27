@@ -10,7 +10,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className={narrowPage}>
+    <div className={`${narrowPage} lg:max-w-5xl`}>
       <Dashboard name={session.name} />
     </div>
   );

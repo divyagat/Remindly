@@ -1,6 +1,7 @@
 "use client";
 
-import { AlarmClock, BellRing, Check, Moon, Sun, X } from "lucide-react";
+import { addDays, set } from "date-fns";
+import { AlarmClock, AlarmClockOff, BellRing, Check, Moon, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import VoiceButton from "@/components/VoiceButton";
 import { primaryButton } from "@/components/ui";
@@ -15,7 +16,7 @@ import {
   type ReminderEvent,
 } from "@/lib/reminder";
 import { getSettings, useSettings } from "@/lib/settings";
-import { getTasks, toggleTask, updateTask, useTasks } from "@/lib/tasks";
+import { getTasks, snoozeTask, toggleTask, updateTask, useTasks } from "@/lib/tasks";
 import { announce, canPlayAudio, isVoiceEnabled, stopSpeaking, unlockAudio } from "@/lib/voice";
 
 // Safety net in case a timer was delayed (e.g. the computer was asleep).
@@ -24,6 +25,20 @@ const CHECK_INTERVAL_MS = 15_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 // Reminders missed by more than this (app was closed) are shown but not spoken.
 const SPEAK_IF_MISSED_WITHIN_MS = 30 * 60_000;
+
+/** "Remind me in…" choices on a reminder popup; "Tomorrow" means tomorrow at wake-up time. */
+function snoozeOptions(wakeTime: string): { label: string; until: () => Date }[] {
+  const [hours, minutes] = wakeTime.split(":").map(Number);
+  return [
+    { label: "10 min", until: () => new Date(Date.now() + 10 * 60_000) },
+    { label: "30 min", until: () => new Date(Date.now() + 30 * 60_000) },
+    { label: "1 hour", until: () => new Date(Date.now() + 60 * 60_000) },
+    {
+      label: "Tomorrow",
+      until: () => set(addDays(new Date(), 1), { hours, minutes, seconds: 0, milliseconds: 0 }),
+    },
+  ];
+}
 
 type Popup = { id: string; text: string } & (
   | { event: ReminderEvent; briefing?: undefined }
@@ -74,8 +89,10 @@ export default function ReminderPopup() {
         updateTask(
           task.id,
           event.key === "overdue"
-            ? { lastNaggedAt: now.toISOString() }
-            : { firedReminders: [...task.firedReminders, event.key] },
+            ? { lastNaggedAt: now.toISOString(), snoozedUntil: null }
+            : event.key === "snooze"
+              ? { snoozedUntil: null }
+              : { firedReminders: [...task.firedReminders, event.key] },
         );
         latestPerTask.set(task.id, event);
       }
@@ -176,7 +193,7 @@ export default function ReminderPopup() {
 
   return (
     <div
-      className="fixed right-4 bottom-20 left-4 z-50 flex max-h-[70vh] flex-col gap-3 overflow-y-auto md:bottom-6 md:left-auto md:w-96"
+      className="fixed right-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-3 z-50 mx-auto flex max-h-[70dvh] max-w-md flex-col gap-3 overflow-y-auto sm:right-4 sm:left-4 md:right-6 md:bottom-6 md:left-auto md:mx-0 md:w-96"
       role="alert"
     >
       {dismissable.length > 1 && (
@@ -289,6 +306,25 @@ export default function ReminderPopup() {
               {!overdue && dismissButton(popup.id)}
             </div>
             {blockedHint}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="mr-0.5 inline-flex items-center gap-1 text-xs font-medium text-zinc-500">
+                <AlarmClockOff className="h-3.5 w-3.5" /> Remind me in
+              </span>
+              {snoozeOptions(settings.wakeTime).map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => {
+                    snoozeTask(task.id, option.until());
+                    stopSpeaking();
+                    dismiss(popup.id);
+                  }}
+                  className="rounded-full border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <div className="mt-3 flex gap-2">
               <VoiceButton text={popup.text} />
               <button

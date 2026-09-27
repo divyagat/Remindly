@@ -4,6 +4,7 @@ import { BellRing, CalendarDays, Home, LogOut, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
+import VoiceToggle from "@/components/VoiceToggle";
 
 const LINKS = [
   { href: "/dashboard", label: "Home", icon: Home },
@@ -40,7 +41,7 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-zinc-200/70 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-6xl items-center justify-between py-3 pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] sm:px-6 lg:px-8">
           <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
               <BellRing className="h-4 w-4" />
@@ -66,6 +67,7 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
                   </Link>
                 ))}
               </nav>
+              <VoiceToggle />
               {authEnabled && (
                 <button
                   type="button"
@@ -97,11 +99,17 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
             <Link
               key={href}
               href={href}
-              className={`flex flex-1 flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-semibold transition ${
+              className={`flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[11px] font-semibold transition active:scale-95 ${
                 pathname === href ? "text-indigo-600 dark:text-indigo-400" : "text-zinc-500"
               }`}
             >
-              <Icon className="h-6 w-6" />
+              <span
+                className={`flex h-8 w-14 items-center justify-center rounded-full transition ${
+                  pathname === href ? "bg-indigo-50 dark:bg-indigo-950" : ""
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+              </span>
               {label}
             </Link>
           ))}

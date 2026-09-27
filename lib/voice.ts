@@ -3,7 +3,10 @@
 // Spoken reminders using the browser's built-in speech synthesis plus a short chime
 // generated with Web Audio. Neither needs a network connection or sound files.
 
+import { useSyncExternalStore } from "react";
+
 const VOICE_SETTING_KEY = "remindly.voiceEnabled";
+const voiceListeners = new Set<() => void>();
 
 export function voiceSupported(): boolean {
   return typeof window !== "undefined" && "speechSynthesis" in window;
@@ -23,6 +26,26 @@ export function setVoiceEnabled(enabled: boolean) {
   } catch {
     // Ignore: the setting just won't be remembered.
   }
+  if (!enabled) {
+    stopSpeaking();
+  }
+  voiceListeners.forEach((listener) => listener());
+}
+
+function subscribeToVoice(listener: () => void) {
+  voiceListeners.add(listener);
+  // Keep other open tabs in sync.
+  const onStorage = (event: StorageEvent) => event.key === VOICE_SETTING_KEY && listener();
+  window.addEventListener("storage", onStorage);
+  return () => {
+    voiceListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/** Whether reminders are spoken aloud; updates everywhere when it's switched. */
+export function useVoiceEnabled(): boolean {
+  return useSyncExternalStore(subscribeToVoice, isVoiceEnabled, () => true);
 }
 
 /**

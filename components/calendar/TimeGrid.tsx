@@ -1,8 +1,9 @@
 "use client";
 
 import { format, isToday } from "date-fns";
-import { useEffect, useRef } from "react";
-import { tasksOnDay, taskTone } from "@/components/calendar/shared";
+import { Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { draggedTaskId, startTaskDrag, tasksOnDay, taskTone } from "@/components/calendar/shared";
 import { card } from "@/components/ui";
 import { formatTime } from "@/lib/reminder";
 import type { Task } from "@/lib/tasks";
@@ -62,12 +63,18 @@ interface TimeGridProps {
   now: number;
   onOpenTask: (task: Task) => void;
   onAddAt: (day: Date, hour: number) => void;
+  /** A task was dragged onto another hour (of the same or another day). */
+  onMoveTask: (taskId: string, day: Date, hour: number) => void;
   onSelectDay?: (day: Date) => void;
 }
 
 /** Week or day view: an hourly timeline with tasks placed at their time. */
-export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onSelectDay }: TimeGridProps) {
+export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onMoveTask, onSelectDay }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // "dayTime-hour" of the slot a task is being dragged over.
+  const [dropSlot, setDropSlot] = useState<string | null>(null);
+  // While dragging, task blocks let the pointer through so every hour slot can be a drop target.
+  const [dragging, setDragging] = useState(false);
   const single = days.length === 1;
 
   // Start scrolled to the morning (or the earliest task, if earlier).
@@ -88,9 +95,9 @@ export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onSele
     <section className={`${card} overflow-hidden`}>
       {/* Seven columns need room: on narrow phones the week scrolls sideways inside the card. */}
       <div className="overflow-x-auto">
-        <div className={single ? "" : "min-w-[640px]"}>
+        <div className={single ? "" : "min-w-[560px] md:min-w-0"}>
           <div className="flex border-b border-zinc-200 dark:border-zinc-800">
-            <div className="w-14 shrink-0" />
+            <div className="w-11 shrink-0 sm:w-14" />
             {days.map((day) => (
               <button
                 key={day.getTime()}
@@ -113,7 +120,7 @@ export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onSele
 
           <div ref={scrollRef} className="max-h-[65dvh] overflow-y-auto">
             <div className="relative flex" style={{ height: 24 * HOUR_PX }}>
-              <div className="w-14 shrink-0">
+              <div className="w-11 shrink-0 sm:w-14">
                 {HOURS.map((hour) => (
                   <div key={hour} className="relative" style={{ height: HOUR_PX }}>
                     {hour > 0 && (
@@ -130,16 +137,38 @@ export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onSele
                   key={day.getTime()}
                   className="relative flex-1 border-l border-zinc-200 dark:border-zinc-800"
                 >
-                  {HOURS.map((hour) => (
-                    <button
-                      key={hour}
-                      type="button"
-                      aria-label={`Add task on ${format(day, "EEEE d MMMM")} at ${format(new Date(2000, 0, 1, hour), "h a")}`}
-                      onClick={() => onAddAt(day, hour)}
-                      className="block w-full border-b border-zinc-100 transition hover:bg-indigo-50/60 dark:border-zinc-800/70 dark:hover:bg-indigo-950/40"
-                      style={{ height: HOUR_PX }}
-                    />
-                  ))}
+                  {HOURS.map((hour) => {
+                    const slot = `${day.getTime()}-${hour}`;
+                    return (
+                      <button
+                        key={hour}
+                        type="button"
+                        aria-label={`Add task on ${format(day, "EEEE d MMMM")} at ${format(new Date(2000, 0, 1, hour), "h a")}`}
+                        onClick={() => onAddAt(day, hour)}
+                        onDragOver={(e) => {
+                          if (draggedTaskId(e) !== null) {
+                            e.preventDefault();
+                            setDropSlot(slot);
+                          }
+                        }}
+                        onDragLeave={() => setDropSlot((current) => (current === slot ? null : current))}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDropSlot(null);
+                          const id = draggedTaskId(e);
+                          if (id) onMoveTask(id, day, hour);
+                        }}
+                        className={`group/slot flex w-full items-start justify-end border-b border-zinc-100 p-1 transition dark:border-zinc-800/70 ${
+                          dropSlot === slot
+                            ? "bg-indigo-100 dark:bg-indigo-900/60"
+                            : "hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40"
+                        }`}
+                        style={{ height: HOUR_PX }}
+                      >
+                        <Plus className="h-4 w-4 text-indigo-500 opacity-0 transition group-hover/slot:opacity-100" />
+                      </button>
+                    );
+                  })}
 
                   {isToday(day) && (
                     <div className="pointer-events-none absolute inset-x-0 z-10" style={{ top: nowTop }}>
@@ -153,9 +182,19 @@ export default function TimeGrid({ days, tasks, now, onOpenTask, onAddAt, onSele
                     <button
                       key={task.id}
                       type="button"
+                      draggable
+                      onDragStart={(e) => {
+                        startTaskDrag(e, task);
+                        // Changing the dragged element during dragstart would cancel the drag.
+                        window.setTimeout(() => setDragging(true));
+                      }}
+                      onDragEnd={() => {
+                        setDragging(false);
+                        setDropSlot(null);
+                      }}
                       onClick={() => onOpenTask(task)}
-                      title={`${formatTime(new Date(task.dueAt!))} ${task.title}`}
-                      className={`absolute z-[5] overflow-hidden rounded-md border-l-[3px] px-1.5 text-left text-xs leading-tight shadow-sm transition hover:z-20 hover:shadow-md ${taskTone(task)}`}
+                      title={`${formatTime(new Date(task.dueAt!))} ${task.title} (drag to move)`}
+                      className={`absolute z-[5] cursor-grab active:cursor-grabbing ${dragging ? "pointer-events-none opacity-60" : ""} overflow-hidden rounded-md border-l-[3px] px-1.5 text-left text-xs leading-tight shadow-sm transition hover:z-20 hover:shadow-md ${taskTone(task)}`}
                       style={{
                         top: top + 1,
                         height: (BLOCK_MINUTES / 60) * HOUR_PX - 2,

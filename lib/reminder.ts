@@ -53,8 +53,11 @@ export function reminderTimeFor(key: ReminderKey, due: Date, bedtime: string): D
   }
 }
 
-/** "overdue" = the repeating reminder for a task that's past due and still not done. */
-export type EventKey = ReminderKey | "overdue";
+/**
+ * "overdue" = the repeating reminder for a task that's past due and still not done.
+ * "snooze" = a snoozed reminder coming back before the task is due.
+ */
+export type EventKey = ReminderKey | "overdue" | "snooze";
 
 export interface ReminderEvent {
   task: Task;
@@ -68,7 +71,9 @@ export interface ScheduleSettings {
 }
 
 export function eventLabel(key: EventKey): string {
-  return key === "overdue" ? "Still not done" : (REMINDER_KINDS.find((kind) => kind.key === key)?.label ?? "Reminder");
+  if (key === "overdue") return "Still not done";
+  if (key === "snooze") return "Snoozed reminder";
+  return REMINDER_KINDS.find((kind) => kind.key === key)?.label ?? "Reminder";
 }
 
 /**
@@ -76,7 +81,8 @@ export function eventLabel(key: EventKey): string {
  * night, until the task is marked as done.
  */
 export function nextOverdueAt(task: Task, settings: ScheduleSettings): Date | null {
-  if (task.completed || !task.dueAt) {
+  // While snoozed, the snooze time replaces the regular repeats (see pendingEvents).
+  if (task.completed || !task.dueAt || task.snoozedUntil) {
     return null;
   }
   const from = task.lastNaggedAt ? new Date(task.lastNaggedAt) : new Date(task.dueAt);
@@ -99,6 +105,11 @@ export function pendingEvents(tasks: Task[], settings: ScheduleSettings): Remind
       if (at) {
         events.push({ task, key, at });
       }
+    }
+    if (task.snoozedUntil) {
+      const at = new Date(task.snoozedUntil);
+      // Snoozed past the due time, it comes back as the insistent "still not done" reminder.
+      events.push({ task, key: at >= due ? "overdue" : "snooze", at });
     }
     const overdueAt = nextOverdueAt(task, settings);
     if (overdueAt) {

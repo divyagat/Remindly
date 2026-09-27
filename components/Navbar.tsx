@@ -39,10 +39,10 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+      <header className="sticky top-0 z-40 border-b border-zinc-200/70 bg-white/85 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
           <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-600 text-white">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
               <BellRing className="h-4 w-4" />
             </span>
             Remindly
@@ -51,16 +51,17 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
             <div className="flex items-center gap-1">
               {/* On computers the tabs sit in the top bar; on phones they move to the bottom. */}
               <nav className="hidden items-center gap-1 md:flex">
-                {LINKS.map(({ href, label }) => (
+                {LINKS.map(({ href, label, icon: Icon }) => (
                   <Link
                     key={href}
                     href={href}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                    className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition ${
                       pathname === href
                         ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
                         : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     }`}
                   >
+                    <Icon className="h-4 w-4" />
                     {label}
                   </Link>
                 ))}
@@ -82,7 +83,7 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
               <Link href="/login" className="hover:underline">
                 Log in
               </Link>
-              <Link href="/register" className="rounded-xl bg-indigo-600 px-3 py-1.5 font-medium text-white">
+              <Link href="/register" className="rounded-lg bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500">
                 Register
               </Link>
             </nav>
@@ -96,7 +97,7 @@ export default function Navbar({ user, authEnabled }: NavbarProps) {
             <Link
               key={href}
               href={href}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium ${
+              className={`flex flex-1 flex-col items-center gap-1 pt-2.5 pb-2 text-[11px] font-semibold transition ${
                 pathname === href ? "text-indigo-600 dark:text-indigo-400" : "text-zinc-500"
               }`}
             >

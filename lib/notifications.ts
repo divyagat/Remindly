@@ -11,12 +11,16 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return Notification.requestPermission();
 }
 
-/** Shows a system notification if permission was granted. Returns whether it was shown. */
-export async function showNotification(title: string, body: string): Promise<boolean> {
+/**
+ * Shows a system notification if permission was granted. Returns whether it was shown.
+ * `sticky` keeps it on screen until the user acts on it (used for overdue tasks).
+ */
+export async function showNotification(title: string, body: string, sticky = false): Promise<boolean> {
   if (!notificationsSupported() || Notification.permission !== "granted") {
     return false;
   }
-  const options: NotificationOptions = { body, icon: "/icon.svg", tag: title };
+  // renotify: a repeat with the same tag alerts again instead of silently replacing the old one.
+  const options = { body, icon: "/icon.svg", tag: title, renotify: true, requireInteraction: sticky } as NotificationOptions;
   try {
     // Mobile browsers only allow notifications through the service worker.
     const registration = await navigator.serviceWorker?.getRegistration();

@@ -1,14 +1,22 @@
 "use client";
 
-import { AlarmClock, BellRing, Check, Moon, X } from "lucide-react";
+import { AlarmClock, BellRing, Check, Moon, Sun, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import VoiceButton from "@/components/VoiceButton";
 import { primaryButton } from "@/components/ui";
+import { briefingText, briefingTitle, nextBriefingAt, takeDueBriefings, type Briefing } from "@/lib/briefing";
 import { showNotification } from "@/lib/notifications";
-import { describeWhen, eventLabel, pendingEvents, spokenText, type ReminderEvent } from "@/lib/reminder";
+import {
+  describeWhen,
+  eventLabel,
+  formatTime,
+  pendingEvents,
+  spokenText,
+  type ReminderEvent,
+} from "@/lib/reminder";
 import { getSettings, useSettings } from "@/lib/settings";
 import { getTasks, toggleTask, updateTask, useTasks } from "@/lib/tasks";
-import { announce, canPlayAudio, isVoiceEnabled, unlockAudio } from "@/lib/voice";
+import { announce, canPlayAudio, isVoiceEnabled, stopSpeaking, unlockAudio } from "@/lib/voice";
 
 // Safety net in case a timer was delayed (e.g. the computer was asleep).
 const CHECK_INTERVAL_MS = 15_000;
@@ -17,15 +25,15 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
 // Reminders missed by more than this (app was closed) are shown but not spoken.
 const SPEAK_IF_MISSED_WITHIN_MS = 30 * 60_000;
 
-interface Popup {
-  id: string;
-  event: ReminderEvent;
-  text: string;
-}
+type Popup = { id: string; text: string } & (
+  | { event: ReminderEvent; briefing?: undefined }
+  | { briefing: Briefing; event?: undefined }
+);
 
 /**
  * Fires reminders at their exact time while the app is open (works offline, since tasks
- * are stored on the device): in-app popup, system notification, chime and voice.
+ * are stored on the device): in-app popup, system notification, chime and voice. Also
+ * gives the bedtime (tomorrow's tasks) and wake-up (today's tasks) summaries.
  */
 export default function ReminderPopup() {
   const [popups, setPopups] = useState<Popup[]>([]);
@@ -33,15 +41,18 @@ export default function ReminderPopup() {
   const settings = useSettings();
   const checkRef = useRef<() => void>(() => {});
 
-  // Set a timer for the next reminder so it fires on time. Rescheduled whenever tasks
-  // or settings change (including right after a reminder fires).
+  // Set a timer for the next reminder or summary so it fires on time. Rescheduled
+  // whenever tasks or settings change (including right after a reminder fires).
   useEffect(() => {
-    const now = Date.now();
-    const next = pendingEvents(tasks, settings)[0];
-    if (!next) {
+    const now = new Date();
+    const times = [pendingEvents(tasks, settings)[0]?.at, nextBriefingAt(now, settings)].filter(
+      (time): time is Date => Boolean(time),
+    );
+    if (times.length === 0) {
       return;
     }
-    const delay = Math.min(Math.max(next.at.getTime() - now, 0), MAX_TIMEOUT_MS);
+    const next = Math.min(...times.map((time) => time.getTime()));
+    const delay = Math.min(Math.max(next - now.getTime(), 0), MAX_TIMEOUT_MS);
     const timeout = window.setTimeout(() => checkRef.current(), delay);
     return () => window.clearTimeout(timeout);
   }, [tasks, settings]);
@@ -49,8 +60,9 @@ export default function ReminderPopup() {
   useEffect(() => {
     function check() {
       const now = new Date();
+      const briefings = takeDueBriefings(getTasks(), getSettings(), now);
       const due = pendingEvents(getTasks(), getSettings()).filter((event) => event.at <= now);
-      if (due.length === 0) {
+      if (due.length === 0 && briefings.length === 0) {
         return;
       }
 
@@ -69,36 +81,56 @@ export default function ReminderPopup() {
       }
       const events = [...latestPerTask.values()];
 
-      const text = spokenText(events, now);
-      const newPopups = events.map((event) => ({
+      const briefingPopups: Popup[] = briefings.map((briefing) => ({
+        id: `briefing-${briefing.kind}`,
+        briefing,
+        text: briefingText(briefing),
+      }));
+      const eventPopups: Popup[] = events.map((event) => ({
         id: `${event.task.id}-${event.key}`,
         event,
         text: spokenText([event], now),
       }));
-      // A newer reminder for the same task replaces its older popup.
+      const newIds = new Set([...briefingPopups, ...eventPopups].map((popup) => popup.id));
+      // A newer reminder for the same task (or a new summary) replaces the older popup.
       setPopups((current) => [
-        ...current.filter((p) => !latestPerTask.has(p.event.task.id)),
-        ...newPopups,
+        ...current.filter(
+          (p) => !newIds.has(p.id) && !(p.event && latestPerTask.has(p.event.task.id)),
+        ),
+        ...briefingPopups,
+        ...eventPopups,
       ]);
 
-      for (const popup of newPopups) {
-        void showNotification(popup.event.task.title, `${eventLabel(popup.event.key)} · ${popup.text}`);
+      for (const popup of briefingPopups) {
+        void showNotification(briefingTitle(popup.briefing!), popup.text);
+      }
+      for (const popup of eventPopups) {
+        void showNotification(
+          popup.event!.task.title,
+          `${eventLabel(popup.event!.key)} · ${popup.text}`,
+          popup.event!.key === "overdue",
+        );
       }
 
-      // "Still not done" reminders are always spoken, however late.
+      // "Still not done" reminders and summaries are always spoken; other reminders
+      // only if they aren't long past (e.g. the app was closed at the time).
       const recent = events.some(
         (event) => event.key === "overdue" || now.getTime() - event.at.getTime() < SPEAK_IF_MISSED_WITHIN_MS,
       );
-      if (recent && isVoiceEnabled()) {
-        announce(text);
+      const speech = [
+        ...briefingPopups.map((popup) => popup.text),
+        ...(recent ? [spokenText(events, now)] : []),
+      ].join(" ");
+      if (speech.trim() && isVoiceEnabled()) {
+        announce(speech);
       }
     }
 
     // Browsers block sound until the user interacts with the page, so prepare
     // audio on the first click, tap or key press.
     const unlock = () => unlockAudio();
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
 
     checkRef.current = check;
     check();
@@ -117,31 +149,115 @@ export default function ReminderPopup() {
     setPopups((current) => current.filter((popup) => popup.id !== id));
   }
 
-  if (popups.length === 0) {
+  // "Still not done" popups stay until the task is marked as done (here or in the task list).
+  const isOverduePopup = (popup: Popup) => popup.event?.key === "overdue";
+  const visible = popups.filter(
+    (popup) => !isOverduePopup(popup) || tasks.some((t) => t.id === popup.event!.task.id && !t.completed),
+  );
+  const dismissable = visible.filter((popup) => !isOverduePopup(popup));
+
+  if (visible.length === 0) {
     return null;
   }
+
+  const dismissButton = (id: string) => (
+    <button
+      type="button"
+      aria-label="Dismiss"
+      onClick={() => dismiss(id)}
+      className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+  const blockedHint = !canPlayAudio() && (
+    <p className="mt-2 text-xs text-zinc-500">Your browser blocked the sound. Press Play to hear it.</p>
+  );
 
   return (
     <div
       className="fixed right-4 bottom-20 left-4 z-50 flex max-h-[70vh] flex-col gap-3 overflow-y-auto md:bottom-6 md:left-auto md:w-96"
       role="alert"
     >
-      {popups.length > 1 && (
+      {dismissable.length > 1 && (
         <button
           type="button"
-          onClick={() => setPopups([])}
+          onClick={() => setPopups((current) => current.filter(isOverduePopup))}
           className="self-end rounded-full bg-zinc-900/80 px-3 py-1 text-xs font-medium text-white backdrop-blur"
         >
-          Dismiss all ({popups.length})
+          Dismiss all ({dismissable.length})
         </button>
       )}
-      {popups.map(({ id, event, text }) => {
+      {visible.map((popup) => {
+        if (popup.briefing) {
+          const { briefing } = popup;
+          const night = briefing.kind === "night";
+          const Icon = night ? Moon : Sun;
+          return (
+            <div
+              key={popup.id}
+              className="animate-slide-up rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white ${
+                    night ? "bg-violet-600" : "bg-amber-500"
+                  }`}
+                >
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`text-xs font-semibold tracking-wide uppercase ${
+                      night ? "text-violet-600 dark:text-violet-400" : "text-amber-600 dark:text-amber-400"
+                    }`}
+                  >
+                    {night ? "Good night" : "Good morning"}
+                  </p>
+                  <p className="font-semibold">{briefingTitle(briefing)}</p>
+                  {briefing.tasks.length === 0 ? (
+                    <p className="text-sm text-zinc-500">Nothing planned.</p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1 text-sm">
+                      {briefing.tasks.slice(0, 6).map((task) => (
+                        <li key={task.id} className="flex gap-2">
+                          <span className="w-16 shrink-0 font-semibold text-zinc-500 tabular-nums">
+                            {formatTime(new Date(task.dueAt!))}
+                          </span>
+                          <span className="min-w-0 truncate">{task.title}</span>
+                        </li>
+                      ))}
+                      {briefing.tasks.length > 6 && (
+                        <li className="text-zinc-500">+{briefing.tasks.length - 6} more</li>
+                      )}
+                    </ul>
+                  )}
+                  {briefing.unfinished.length > 0 && (
+                    <p className="mt-1.5 text-sm font-medium text-rose-600 dark:text-rose-400">
+                      {briefing.unfinished.length} unfinished from before
+                    </p>
+                  )}
+                </div>
+                {dismissButton(popup.id)}
+              </div>
+              {blockedHint}
+              <div className="mt-3 flex gap-2">
+                <VoiceButton text={popup.text} />
+                <button type="button" onClick={() => dismiss(popup.id)} className={`${primaryButton} flex-1 py-2`}>
+                  <Check className="h-4 w-4" /> Got it
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        const { event } = popup;
         const { task } = event;
         const overdue = event.key === "overdue";
-        const Icon = overdue ? AlarmClock : event.key === "nightBefore" ? Moon : BellRing;
+        const Icon = overdue ? AlarmClock : BellRing;
         return (
           <div
-            key={id}
+            key={popup.id}
             className={`animate-slide-up rounded-2xl border bg-white p-4 shadow-2xl dark:bg-zinc-900 ${
               overdue ? "border-rose-300 dark:border-rose-800" : "border-zinc-200 dark:border-zinc-700"
             }`}
@@ -170,25 +286,17 @@ export default function ReminderPopup() {
                   <p className="mt-1 line-clamp-3 text-sm text-zinc-600 dark:text-zinc-400">{task.notes}</p>
                 )}
               </div>
-              <button
-                type="button"
-                aria-label="Dismiss"
-                onClick={() => dismiss(id)}
-                className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              {!overdue && dismissButton(popup.id)}
             </div>
-            {!canPlayAudio() && (
-              <p className="mt-2 text-xs text-zinc-500">Your browser blocked the sound. Press Play to hear it.</p>
-            )}
+            {blockedHint}
             <div className="mt-3 flex gap-2">
-              <VoiceButton text={text} />
+              <VoiceButton text={popup.text} />
               <button
                 type="button"
                 onClick={() => {
-                  if (!task.completed) toggleTask(task.id);
-                  dismiss(id);
+                  if (tasks.some((t) => t.id === task.id && !t.completed)) toggleTask(task.id);
+                  stopSpeaking();
+                  dismiss(popup.id);
                 }}
                 className={`${primaryButton} flex-1 py-2`}
               >

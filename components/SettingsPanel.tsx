@@ -1,32 +1,77 @@
 "use client";
 
-import { AlarmClock, Bell, Database, Moon, Volume2, WifiOff } from "lucide-react";
+import { set } from "date-fns";
+import { Volume2 } from "lucide-react";
 import { useReducer, useSyncExternalStore } from "react";
 import NotificationPermission from "@/components/NotificationPermission";
-import VoiceButton from "@/components/VoiceButton";
-import { card, chip, input, secondaryButton } from "@/components/ui";
-import { formatBedtime, REMINDER_KINDS } from "@/lib/reminder";
+import { card, chip, input } from "@/components/ui";
+import { buildBriefing, briefingText } from "@/lib/briefing";
+import { REMINDER_KINDS } from "@/lib/reminder";
 import { updateSettings, useSettings } from "@/lib/settings";
 import { clearCompleted, useTasks } from "@/lib/tasks";
-import { isVoiceEnabled, setVoiceEnabled, voiceSupported } from "@/lib/voice";
+import { announce, isVoiceEnabled, setVoiceEnabled, voiceSupported } from "@/lib/voice";
 
 const noSubscription = () => () => {};
 
-function Section({ icon: Icon, title, children }: { icon: typeof Bell; title: string; children: React.ReactNode }) {
+function todayAt(hhmm: string): Date {
+  const [hours, minutes] = hhmm.split(":").map(Number);
+  return set(new Date(), { hours, minutes, seconds: 0, milliseconds: 0 });
+}
+
+/** An on/off switch. */
+function Switch({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }) {
   return (
-    <section className={`${card} space-y-3 p-5`}>
-      <h2 className="flex items-center gap-2 font-semibold">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
-          <Icon className="h-4 w-4" />
-        </span>
-        {title}
-      </h2>
-      {children}
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => onChange(!on)}
+      className={`relative h-7 w-12 shrink-0 rounded-full transition ${on ? "bg-indigo-600" : "bg-zinc-300 dark:bg-zinc-700"}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+          on ? "translate-x-5" : ""
+        }`}
+      />
+    </button>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="px-1 text-sm font-semibold text-zinc-500">{title}</h2>
+      <div className={`${card} divide-y divide-zinc-100 dark:divide-zinc-800`}>{children}</div>
     </section>
   );
 }
 
-const hint = "text-sm text-zinc-600 dark:text-zinc-400";
+function Row({ title, hint, children }: { title: string; hint?: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5">
+      <div className="min-w-0">
+        <p className="font-medium">{title}</p>
+        {hint && <p className="text-sm text-zinc-500">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function PlayButton({ text, label }: { text: string; label: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() => announce(text)}
+      className="rounded-full p-2 text-zinc-500 hover:bg-zinc-100 hover:text-indigo-600 dark:hover:bg-zinc-800"
+    >
+      <Volume2 className="h-4 w-4" />
+    </button>
+  );
+}
 
 export default function SettingsPanel() {
   const tasks = useTasks();
@@ -36,143 +81,147 @@ export default function SettingsPanel() {
   const voiceOn = useSyncExternalStore(noSubscription, isVoiceEnabled, () => true);
   const completedCount = tasks.filter((task) => task.completed).length;
 
+  const summaries = [
+    {
+      kind: "morning",
+      title: "Morning summary",
+      hint: "Hear today's tasks when you wake up",
+      time: settings.wakeTime,
+      setTime: (value: string) => updateSettings({ wakeTime: value }),
+      on: settings.morningSummary,
+      toggle: (value: boolean) => updateSettings({ morningSummary: value }),
+    },
+    {
+      kind: "night",
+      title: "Bedtime summary",
+      hint: "Hear tomorrow's tasks before bed",
+      time: settings.bedtime,
+      setTime: (value: string) => updateSettings({ bedtime: value }),
+      on: settings.bedtimeSummary,
+      toggle: (value: boolean) => updateSettings({ bedtimeSummary: value }),
+    },
+  ] as const;
+
   return (
-    <div className="space-y-4">
-      <Section icon={AlarmClock} title="Unfinished tasks">
-        <p className={hint}>
-          After a task&apos;s time has passed, keep reminding me out loud until I mark it done.
-        </p>
-        <select
-          aria-label="Repeat reminders for unfinished tasks"
-          value={settings.repeatMinutes}
-          onChange={(e) => updateSettings({ repeatMinutes: Number(e.target.value) })}
-          className={`${input} w-auto`}
-        >
-          <option value={0}>Don&apos;t repeat</option>
-          {[5, 10, 15, 30, 60].map((minutes) => (
-            <option key={minutes} value={minutes}>
-              Every {minutes === 60 ? "hour" : `${minutes} minutes`}
-            </option>
-          ))}
-        </select>
-      </Section>
-
-      <Section icon={Moon} title="Sleep time">
-        <p className={hint}>
-          At bedtime you hear a summary of tomorrow&apos;s tasks. Repeats for unfinished tasks stay quiet until you
-          wake up.
-        </p>
-        <div className="flex flex-wrap gap-4">
-          <label className="space-y-1 text-sm font-medium">
-            <span>Bedtime</span>
-            <input
-              type="time"
-              aria-label="Bedtime"
-              value={settings.bedtime}
-              onChange={(e) => e.target.value && updateSettings({ bedtime: e.target.value })}
-              className={`${input} w-36`}
-            />
-          </label>
-          <label className="space-y-1 text-sm font-medium">
-            <span>Wake-up</span>
-            <input
-              type="time"
-              aria-label="Wake-up time"
-              value={settings.wakeTime}
-              onChange={(e) => e.target.value && updateSettings({ wakeTime: e.target.value })}
-              className={`${input} w-36`}
-            />
-          </label>
-        </div>
-      </Section>
-
-      <Section icon={Bell} title="Default reminders">
-        <p className={hint}>Pre-selected when you add a new task. You can still change them per task.</p>
-        <div className="flex flex-wrap gap-2">
-          {REMINDER_KINDS.map((kind) => {
-            const on = settings.defaultReminders.includes(kind.key);
-            return (
-              <button
-                key={kind.key}
-                type="button"
-                aria-pressed={on}
-                onClick={() =>
-                  updateSettings({
-                    defaultReminders: on
-                      ? settings.defaultReminders.filter((key) => key !== kind.key)
-                      : REMINDER_KINDS.map((k) => k.key).filter(
-                          (key) => key === kind.key || settings.defaultReminders.includes(key),
-                        ),
-                  })
-                }
-                className={chip(on)}
-              >
-                {kind.key === "nightBefore" ? `Night before · ${formatBedtime(settings.bedtime)}` : kind.label}
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Section icon={Volume2} title="Voice">
-        <p className={hint}>
-          A chime plays and the reminder is read aloud — what it is, when it&apos;s due and your notes. Browsers
-          only allow sound after you&apos;ve clicked somewhere on the page, so click anywhere after opening Remindly.
-        </p>
-        {speechSupported ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={voiceOn}
-                onChange={(e) => {
-                  setVoiceEnabled(e.target.checked);
+    <div className="space-y-8">
+      <Group title="Reminders">
+        {speechSupported && (
+          <Row title="Speak reminders aloud" hint="A chime, then the task is read out">
+            <div className="flex items-center gap-1">
+              <PlayButton
+                label="Test voice"
+                text="Reminder: Doctor appointment, tomorrow at 10:00 AM. Remember: bring your reports."
+              />
+              <Switch
+                label="Speak reminders aloud"
+                on={voiceOn}
+                onChange={(on) => {
+                  setVoiceEnabled(on);
                   rerender();
                 }}
-                className="h-4 w-4 accent-indigo-600"
               />
-              Speak reminders aloud
-            </label>
-            <VoiceButton
-              text="Reminder: Doctor appointment, tomorrow at 10:00 AM. Remember: bring your reports."
-              label="Test voice"
-            />
-          </div>
-        ) : (
-          <p className="text-sm text-zinc-500">This browser doesn&apos;t support speech.</p>
+            </div>
+          </Row>
         )}
-      </Section>
+        <Row title="Remind me again when overdue" hint="Keeps saying the task out loud until you mark it done">
+          <select
+            aria-label="Repeat reminders for unfinished tasks"
+            value={settings.repeatMinutes}
+            onChange={(e) => updateSettings({ repeatMinutes: Number(e.target.value) })}
+            className={`${input} w-auto py-2`}
+          >
+            {[5, 10, 15, 30, 60].map((minutes) => (
+              <option key={minutes} value={minutes}>
+                Every {minutes === 60 ? "hour" : `${minutes} min`}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <div className="space-y-2.5 px-4 py-3.5 sm:px-5">
+          <div>
+            <p className="font-medium">New tasks remind me</p>
+            <p className="text-sm text-zinc-500">You can still change this for each task</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {REMINDER_KINDS.map((kind) => {
+              const on = settings.defaultReminders.includes(kind.key);
+              return (
+                <button
+                  key={kind.key}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() =>
+                    updateSettings({
+                      defaultReminders: on
+                        ? settings.defaultReminders.filter((key) => key !== kind.key)
+                        : REMINDER_KINDS.map((k) => k.key).filter(
+                            (key) => key === kind.key || settings.defaultReminders.includes(key),
+                          ),
+                    })
+                  }
+                  className={chip(on)}
+                >
+                  {kind.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <Row title="Notifications" hint="Also show a pop-up from your system">
+          <NotificationPermission />
+        </Row>
+      </Group>
 
-      <Section icon={Bell} title="Notifications">
-        <p className={hint}>Also show a system notification when a reminder goes off.</p>
-        <NotificationPermission />
-      </Section>
+      <Group title="Daily summary">
+        {summaries.map(({ kind, title, hint, time, setTime, on, toggle }) => (
+          <Row key={kind} title={title} hint={hint}>
+            <div className="flex items-center gap-1">
+              {speechSupported && (
+                <PlayButton
+                  label={`Hear ${title.toLowerCase()}`}
+                  text={briefingText(
+                    buildBriefing(kind, tasks, new Date(), kind === "night" ? todayAt(settings.bedtime) : new Date()),
+                  )}
+                />
+              )}
+              <input
+                type="time"
+                aria-label={kind === "night" ? "Bedtime" : "Wake-up time"}
+                value={time}
+                onChange={(e) => e.target.value && setTime(e.target.value)}
+                className={`${input} mr-2 w-auto py-2 [color-scheme:light] dark:[color-scheme:dark]`}
+              />
+              <Switch label={title} on={on} onChange={toggle} />
+            </div>
+          </Row>
+        ))}
+      </Group>
 
-      <Section icon={WifiOff} title="Offline use">
-        <p className={hint}>
-          Your tasks are saved on this device, so Remindly works without internet. Reminders go off while Remindly
-          is open in a tab or installed as an app. To install it, choose <strong>Install app</strong> (computer) or{" "}
-          <strong>Add to Home screen</strong> (phone) from your browser menu.
-        </p>
-      </Section>
-
-      <Section icon={Database} title="Data">
-        <p className={hint}>
-          {tasks.length} task{tasks.length === 1 ? "" : "s"} stored on this device.
-        </p>
-        <button
-          type="button"
-          disabled={completedCount === 0}
-          onClick={() => {
-            if (window.confirm(`Delete ${completedCount} completed task(s)?`)) {
-              clearCompleted();
-            }
-          }}
-          className={secondaryButton}
+      <Group title="Your data">
+        <Row
+          title="Completed tasks"
+          hint={`${tasks.length} task${tasks.length === 1 ? "" : "s"} saved on this device, ${completedCount} done`}
         >
-          Clear {completedCount} completed task{completedCount === 1 ? "" : "s"}
-        </button>
-      </Section>
+          <button
+            type="button"
+            disabled={completedCount === 0}
+            onClick={() => {
+              if (window.confirm(`Delete ${completedCount} completed task(s)?`)) {
+                clearCompleted();
+              }
+            }}
+            className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:text-zinc-400 disabled:hover:bg-transparent dark:text-rose-400 dark:hover:bg-rose-950"
+          >
+            Clear
+          </button>
+        </Row>
+      </Group>
+
+      <p className="px-1 text-sm text-zinc-500">
+        Remindly works offline. Reminders go off while it&apos;s open in a tab or installed as an app — use{" "}
+        <strong>Install app</strong> or <strong>Add to Home screen</strong> from your browser menu. Browsers only
+        play sound after you&apos;ve tapped the page once.
+      </p>
     </div>
   );
 }

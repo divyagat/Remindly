@@ -35,6 +35,11 @@ export function canPlayAudio(): boolean {
 }
 
 let audioContext: AudioContext | null = null;
+// A reminder that couldn't be spoken because the browser was blocking sound; it's
+// spoken as soon as the user taps the page.
+let blockedText: string | null = null;
+// Speech waiting for the chime to finish.
+const pendingSpeech = new Set<number>();
 
 function getAudioContext(): AudioContext | null {
   if (!audioContext && typeof AudioContext !== "undefined") {
@@ -49,6 +54,11 @@ export function unlockAudio() {
   if (voiceSupported()) {
     // Loads the voice list and satisfies the "user gesture" requirement for speech.
     window.speechSynthesis.getVoices();
+  }
+  if (blockedText) {
+    const text = blockedText;
+    blockedText = null;
+    announce(text);
   }
 }
 
@@ -92,8 +102,16 @@ export function speak(text: string) {
     return;
   }
   const synth = window.speechSynthesis;
-  synth.cancel();
+  // Cancelling when nothing is playing can make Chrome drop the next utterance.
+  if (synth.speaking || synth.pending) {
+    synth.cancel();
+  }
   const utterance = new SpeechSynthesisUtterance(text);
+  utterance.onerror = (event) => {
+    if (event.error === "not-allowed") {
+      blockedText = text;
+    }
+  };
   const voice = pickVoice();
   if (voice) {
     utterance.voice = voice;
@@ -101,10 +119,33 @@ export function speak(text: string) {
   }
   utterance.rate = 0.95;
   synth.speak(utterance);
+  // Chrome sometimes leaves speech paused (e.g. after the tab was in the background),
+  // which makes it silently queue instead of talking.
+  if (synth.paused) {
+    synth.resume();
+  }
 }
 
-/** Chime, then read the text aloud. */
+/** Chime, then read the text aloud (or as soon as the browser allows sound). */
 export function announce(text: string) {
+  if (!canPlayAudio()) {
+    blockedText = text;
+    return;
+  }
   playChime();
-  window.setTimeout(() => speak(text), 600);
+  const timeout = window.setTimeout(() => {
+    pendingSpeech.delete(timeout);
+    speak(text);
+  }, 600);
+  pendingSpeech.add(timeout);
+}
+
+/** Stops the current announcement (e.g. once the task it's about is marked as done). */
+export function stopSpeaking() {
+  blockedText = null;
+  pendingSpeech.forEach((timeout) => window.clearTimeout(timeout));
+  pendingSpeech.clear();
+  if (voiceSupported()) {
+    window.speechSynthesis.cancel();
+  }
 }

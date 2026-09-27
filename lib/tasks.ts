@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { passedReminders, type ReminderKey } from "@/lib/reminder";
+import { nextOccurrence, type Repeat } from "@/lib/repeat";
 import { getSettings } from "@/lib/settings";
 
 // Tasks live in the browser's localStorage so the app keeps working offline.
@@ -21,12 +22,16 @@ export interface Task {
   firedReminders: ReminderKey[];
   /** When the "still not done" reminder was last given for this overdue task. */
   lastNaggedAt: string | null;
+  /** How the task comes back after it's done. */
+  repeat: Repeat;
+  /** For a finished repeating task: the id of the next occurrence it created. */
+  nextId: string | null;
   completed: boolean;
   completedAt: string | null;
   createdAt: string;
 }
 
-export type TaskInput = Pick<Task, "title" | "notes" | "priority" | "dueAt" | "reminders">;
+export type TaskInput = Pick<Task, "title" | "notes" | "priority" | "dueAt" | "reminders" | "repeat">;
 
 const STORAGE_KEY = "remindly.tasks";
 const EMPTY: Task[] = [];
@@ -46,12 +51,21 @@ const LEGACY_MINUTES_TO_KEY: Record<number, ReminderKey> = {
 function normalize(raw: Task & { remindMinutesBefore?: number | null; remindedAt?: string | null }): Task {
   if (Array.isArray(raw.reminders)) {
     raw.lastNaggedAt ??= null;
+    raw.repeat ??= "none";
+    raw.nextId ??= null;
     return raw;
   }
   const { remindMinutesBefore, remindedAt, ...rest } = raw;
   const key = remindMinutesBefore != null ? LEGACY_MINUTES_TO_KEY[remindMinutesBefore] ?? "atTime" : null;
   const reminders = key ? [key] : [];
-  return { ...rest, reminders, firedReminders: remindedAt ? reminders : [], lastNaggedAt: null };
+  return {
+    ...rest,
+    reminders,
+    firedReminders: remindedAt ? reminders : [],
+    lastNaggedAt: null,
+    repeat: "none",
+    nextId: null,
+  };
 }
 
 function read(): Task[] {
@@ -121,6 +135,7 @@ export function addTask(input: TaskInput): Task {
     id: newId(),
     firedReminders: passedReminders(input.reminders, input.dueAt, getSettings().bedtime),
     lastNaggedAt: repeatStart(input.dueAt),
+    nextId: null,
     completed: false,
     completedAt: null,
     createdAt: new Date().toISOString(),
@@ -155,12 +170,49 @@ export function toggleTask(id: string) {
   if (!task) {
     return;
   }
-  updateTask(id, {
-    completed: !task.completed,
-    completedAt: task.completed ? null : new Date().toISOString(),
-    // Un-ticking an overdue task shouldn't make it nag instantly.
-    ...(task.completed ? { lastNaggedAt: repeatStart(task.dueAt) } : {}),
-  });
+
+  if (task.completed) {
+    // Un-ticking: also remove the next occurrence it created, if that hasn't been done yet.
+    const next = task.nextId ? read().find((t) => t.id === task.nextId) : undefined;
+    write(
+      read()
+        .filter((t) => !(next && t.id === next.id && !next.completed))
+        .map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                completed: false,
+                completedAt: null,
+                nextId: null,
+                // Un-ticking an overdue task shouldn't make it nag instantly.
+                lastNaggedAt: repeatStart(t.dueAt),
+              }
+            : t,
+        ),
+    );
+    return;
+  }
+
+  const completedAt = new Date().toISOString();
+  if (task.repeat === "none" || !task.dueAt) {
+    updateTask(id, { completed: true, completedAt });
+    return;
+  }
+
+  // A repeating task: mark this one done and schedule the next occurrence.
+  const dueAt = nextOccurrence(new Date(task.dueAt), task.repeat).toISOString();
+  const next: Task = {
+    ...task,
+    id: newId(),
+    dueAt,
+    firedReminders: passedReminders(task.reminders, dueAt, getSettings().bedtime),
+    lastNaggedAt: null,
+    nextId: null,
+    completed: false,
+    completedAt: null,
+    createdAt: completedAt,
+  };
+  write([next, ...read().map((t) => (t.id === id ? { ...t, completed: true, completedAt, nextId: next.id } : t))]);
 }
 
 export function deleteTask(id: string) {

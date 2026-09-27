@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Dashboard from "@/components/Dashboard";
+import { narrowPage } from "@/components/ui";
 import { getSession } from "@/lib/auth";
 
 export default async function DashboardPage() {
@@ -9,7 +10,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl p-4 sm:py-8">
+    <div className={narrowPage}>
       <Dashboard name={session.name} />
     </div>
   );

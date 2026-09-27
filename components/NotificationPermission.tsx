@@ -1,7 +1,6 @@
 "use client";
 
 import { useReducer, useSyncExternalStore } from "react";
-import { primaryButton } from "@/components/ui";
 import { notificationsSupported, requestNotificationPermission } from "@/lib/notifications";
 
 const noSubscription = () => () => {};
@@ -20,18 +19,18 @@ export default function NotificationPermission() {
   }
 
   if (permission === "unsupported") {
-    return <p className="text-sm text-zinc-500">This browser doesn&apos;t support notifications.</p>;
+    return <span className="text-sm text-zinc-500">Not supported</span>;
   }
 
   if (permission === "granted") {
-    return <p className="text-sm text-green-700 dark:text-green-400">Notifications are on.</p>;
+    return <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">On</span>;
   }
 
   if (permission === "denied") {
     return (
-      <p className="text-sm text-zinc-500">
-        Notifications are blocked. Allow them for this site in your browser settings.
-      </p>
+      <span className="text-sm text-zinc-500" title="Allow notifications for this site in your browser settings.">
+        Blocked in browser
+      </span>
     );
   }
 
@@ -42,9 +41,9 @@ export default function NotificationPermission() {
         await requestNotificationPermission();
         rerender();
       }}
-      className={primaryButton}
+      className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950"
     >
-      Turn on notifications
+      Turn on
     </button>
   );
 }

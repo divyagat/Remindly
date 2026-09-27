@@ -4,12 +4,16 @@ import { useSyncExternalStore } from "react";
 import type { ReminderKey } from "@/lib/reminder";
 
 export interface Settings {
-  /** Bedtime as "HH:mm"; the "night before" reminder is spoken at this time. */
+  /** Bedtime as "HH:mm"; tomorrow's tasks are read out at this time. */
   bedtime: string;
-  /** Wake-up time as "HH:mm"; repeats for unfinished tasks are paused from bedtime until then. */
+  /** Wake-up time as "HH:mm"; today's tasks are read out at this time. */
   wakeTime: string;
-  /** Minutes between repeat reminders for overdue, unfinished tasks (0 = don't repeat). */
+  /** Minutes between repeat reminders for overdue tasks; they repeat until the task is done. */
   repeatMinutes: number;
+  /** Read out tomorrow's tasks at bedtime. */
+  bedtimeSummary: boolean;
+  /** Read out today's tasks at wake-up time. */
+  morningSummary: boolean;
   /** Reminders pre-selected when adding a new task. */
   defaultReminders: ReminderKey[];
 }
@@ -20,7 +24,9 @@ export const DEFAULT_SETTINGS: Settings = {
   bedtime: "22:00",
   wakeTime: "07:00",
   repeatMinutes: 15,
-  defaultReminders: ["dayBefore", "nightBefore", "hourBefore", "fiveMinBefore", "atTime"],
+  bedtimeSummary: true,
+  morningSummary: true,
+  defaultReminders: ["dayBefore", "hourBefore", "fiveMinBefore", "atTime"],
 };
 
 let cache: Settings | null = null;
@@ -36,6 +42,10 @@ export function getSettings(): Settings {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     cache = { ...DEFAULT_SETTINGS, ...(raw ? (JSON.parse(raw) as Partial<Settings>) : {}) };
+    // Repeats used to have an "off" option; overdue tasks now always keep reminding.
+    if (!(cache.repeatMinutes > 0)) {
+      cache = { ...cache, repeatMinutes: DEFAULT_SETTINGS.repeatMinutes };
+    }
   } catch {
     cache = DEFAULT_SETTINGS;
   }

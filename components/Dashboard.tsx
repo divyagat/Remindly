@@ -1,13 +1,13 @@
 "use client";
 
-import { format, formatDistanceToNowStrict } from "date-fns";
-import { BellRing, Moon } from "lucide-react";
+import { format, formatDistanceToNowStrict, isToday } from "date-fns";
+import { BellRing } from "lucide-react";
 import TaskForm from "@/components/TaskForm";
 import TaskList from "@/components/TaskList";
 import { card } from "@/components/ui";
-import { eventLabel, formatTime, pendingEvents } from "@/lib/reminder";
+import { formatTime, pendingEvents } from "@/lib/reminder";
 import { useSettings } from "@/lib/settings";
-import { useTasks } from "@/lib/tasks";
+import { isOverdue, useTasks } from "@/lib/tasks";
 import { useNow } from "@/lib/useNow";
 
 function greeting(hour: number): string {
@@ -17,7 +17,11 @@ function greeting(hour: number): string {
   return "Good evening";
 }
 
-/** The home screen: add a task, see the next reminder, and the task list. */
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+/** The home screen: a short summary, one box to add tasks, and the task list. */
 export default function Dashboard({ name }: { name: string }) {
   const tasks = useTasks();
   const settings = useSettings();
@@ -26,33 +30,40 @@ export default function Dashboard({ name }: { name: string }) {
   const now = new Date(nowMs);
   const nextEvent = pendingEvents(tasks, settings).find((event) => event.at >= now);
 
+  const leftToday = tasks.filter((task) => !task.completed && task.dueAt && isToday(new Date(task.dueAt))).length;
+  const overdueCount = tasks.filter((task) => isOverdue(task, now)).length;
+
+  const summary = [
+    leftToday ? `${plural(leftToday, "task")} left today` : "Nothing left for today",
+    overdueCount ? `${overdueCount} overdue` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {nowMs ? greeting(now.getHours()) : "Hello"}, {name} 👋
+        <p className="text-sm font-medium text-zinc-500">{nowMs ? format(now, "EEEE, d MMMM") : " "}</p>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
+          {nowMs ? greeting(now.getHours()) : "Hello"}, {name.split(" ")[0]}
         </h1>
-        <p className="text-zinc-500">{nowMs ? format(now, "EEEE, d MMMM") : " "}</p>
+        {nowMs > 0 && (
+          <p className={`mt-1 ${overdueCount ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>{summary}</p>
+        )}
       </header>
 
-      <section className={`${card} p-4 sm:p-5`}>
-        <TaskForm />
+      <section className={`${card} p-3 shadow-sm sm:p-4`}>
+        <TaskForm compact />
       </section>
 
       {nextEvent && (
-        <section className="flex items-center gap-3 rounded-2xl bg-indigo-50 p-4 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-100">
-          {nextEvent.key === "nightBefore" ? (
-            <Moon className="h-5 w-5 shrink-0" />
-          ) : (
-            <BellRing className="h-5 w-5 shrink-0" />
-          )}
-          <p className="min-w-0 text-sm">
-            <span className="font-semibold">Next reminder {formatDistanceToNowStrict(nextEvent.at, { addSuffix: true })}</span>
-            <span className="block truncate text-indigo-700 dark:text-indigo-300">
-              {nextEvent.task.title} · {formatTime(nextEvent.at)} ({eventLabel(nextEvent.key).toLowerCase()})
-            </span>
-          </p>
-        </section>
+        <p className="flex items-center gap-2 text-sm text-zinc-500">
+          <BellRing className="h-4 w-4 shrink-0 text-indigo-500" />
+          <span className="truncate">
+            Next reminder <span className="font-medium text-zinc-800 dark:text-zinc-200">{nextEvent.task.title}</span>{" "}
+            at {formatTime(nextEvent.at)} ({formatDistanceToNowStrict(nextEvent.at, { addSuffix: true })})
+          </span>
+        </p>
       )}
 
       <TaskList />

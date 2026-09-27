@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import CalendarView from "@/components/CalendarView";
+import { page } from "@/components/ui";
 import { getSession } from "@/lib/auth";
 
 export default async function CalendarPage() {
@@ -9,8 +10,7 @@ export default async function CalendarPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-4 sm:py-8">
-      <h1 className="text-2xl font-bold tracking-tight">Calendar</h1>
+    <div className={page}>
       <CalendarView />
     </div>
   );

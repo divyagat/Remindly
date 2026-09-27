@@ -1,81 +1,103 @@
 "use client";
 
-import { format, isToday, isTomorrow } from "date-fns";
-import { Check, Pencil, Trash2 } from "lucide-react";
+import { format, isToday, isTomorrow, isYesterday } from "date-fns";
+import { Bell, Check, Repeat2 } from "lucide-react";
 import { useState } from "react";
 import TaskForm from "@/components/TaskForm";
 import { card } from "@/components/ui";
 import { formatTime } from "@/lib/reminder";
-import { deleteTask, isOverdue, toggleTask, type Task } from "@/lib/tasks";
+import { repeatLabel } from "@/lib/repeat";
+import { isOverdue, toggleTask, type Task } from "@/lib/tasks";
 
-function dueLabel(due: Date): string {
-  if (isToday(due)) return `Today, ${formatTime(due)}`;
-  if (isTomorrow(due)) return `Tomorrow, ${formatTime(due)}`;
-  return format(due, "EEE d MMM, h:mm a");
+function dayLabel(due: Date): string {
+  if (isToday(due)) return "Today";
+  if (isTomorrow(due)) return "Tomorrow";
+  if (isYesterday(due)) return "Yesterday";
+  return format(due, "EEE d MMM");
 }
 
-export default function TaskCard({ task }: { task: Task }) {
+interface TaskCardProps {
+  task: Task;
+  /** Show the day next to the time; off inside lists already grouped by day. */
+  showDay?: boolean;
+}
+
+export default function TaskCard({ task, showDay = true }: TaskCardProps) {
   const [editing, setEditing] = useState(false);
   const overdue = isOverdue(task);
   const due = task.dueAt ? new Date(task.dueAt) : null;
+  const remindersLeft = task.reminders.some((key) => !task.firedReminders.includes(key));
 
   if (editing) {
     return (
-      <li className={`${card} animate-slide-up p-4`}>
+      <li className={`${card} animate-slide-up p-4 shadow-sm sm:p-5`}>
         <TaskForm task={task} onDone={() => setEditing(false)} />
       </li>
     );
   }
 
+  const when = due ? (showDay || overdue ? `${dayLabel(due)}, ${formatTime(due)}` : formatTime(due)) : null;
+
   return (
-    <li className={`${card} flex items-center gap-3 p-3.5`}>
+    <li className={`${card} flex items-center gap-3 transition hover:border-zinc-300 dark:hover:border-zinc-700`}>
       <button
         type="button"
         aria-label={task.completed ? "Mark as not done" : "Mark as done"}
         onClick={() => toggleTask(task.id)}
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition ${
-          task.completed
-            ? "border-emerald-500 bg-emerald-500 text-white"
-            : "border-zinc-300 hover:border-indigo-500 dark:border-zinc-600"
-        }`}
+        className="flex shrink-0 items-center self-stretch pl-4"
       >
-        {task.completed && <Check className="h-4 w-4" strokeWidth={3} />}
+        <span
+          className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition active:scale-90 ${
+            task.completed
+              ? "border-emerald-500 bg-emerald-500 text-white"
+              : overdue
+                ? "border-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950"
+                : "border-zinc-300 hover:border-indigo-500 dark:border-zinc-600"
+          }`}
+        >
+          {task.completed && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+        </span>
       </button>
 
-      <div className="min-w-0 flex-1">
-        <p className={`break-words font-medium ${task.completed ? "text-zinc-400 line-through" : ""}`}>
-          {task.priority === "high" && !task.completed && (
-            <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-rose-500 align-middle" title="Important" />
-          )}
-          {task.title}
-        </p>
-        {due && !task.completed && (
-          <p className={`text-sm ${overdue ? "font-medium text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
-            {dueLabel(due)}
-          </p>
-        )}
-        {task.notes && !task.completed && (
-          <p className="truncate text-sm text-zinc-500">{task.notes}</p>
-        )}
-      </div>
-
-      {!task.completed && (
-        <button
-          type="button"
-          aria-label="Edit task"
-          onClick={() => setEditing(true)}
-          className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-        >
-          <Pencil className="h-4 w-4" />
-        </button>
-      )}
+      {/* Tapping the task opens it for editing. */}
       <button
         type="button"
-        aria-label="Delete task"
-        onClick={() => deleteTask(task.id)}
-        className="rounded-lg p-2 text-zinc-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"
+        onClick={() => setEditing(true)}
+        aria-label={`Edit ${task.title}`}
+        className="min-w-0 flex-1 py-3 pr-4 text-left"
       >
-        <Trash2 className="h-4 w-4" />
+        <p
+          className={`break-words leading-snug ${
+            task.completed ? "text-zinc-400 line-through dark:text-zinc-500" : "font-medium"
+          }`}
+        >
+          {task.title}
+          {task.priority === "high" && !task.completed && (
+            <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-rose-500 align-middle" title="Important" />
+          )}
+        </p>
+        {!task.completed && (when || task.repeat !== "none" || task.notes) && (
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-zinc-500">
+            {when && (
+              <span className={`tabular-nums ${overdue ? "font-medium text-rose-600 dark:text-rose-400" : ""}`}>
+                {when}
+              </span>
+            )}
+            {when && remindersLeft && <Bell className="h-3 w-3 shrink-0" aria-label="Reminders set" />}
+            {task.repeat !== "none" && (
+              <span className="inline-flex items-center gap-0.5">
+                <Repeat2 className="h-3.5 w-3.5 shrink-0" />
+                {repeatLabel(task.repeat)}
+              </span>
+            )}
+            {task.notes && (
+              <span className="truncate">
+                {(when || task.repeat !== "none") && "· "}
+                {task.notes}
+              </span>
+            )}
+          </p>
+        )}
       </button>
     </li>
   );

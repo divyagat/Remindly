@@ -4,6 +4,7 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import OfflineSupport from "@/components/OfflineSupport";
 import ReminderPopup from "@/components/ReminderPopup";
+import SoundBanner from "@/components/SoundBanner";
 import { AUTH_ENABLED, getSession } from "@/lib/auth";
 
 const geistSans = Geist({
@@ -41,8 +42,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <OfflineSupport />
+          {session && <SoundBanner />}
           {/* Bottom padding keeps content clear of the phone tab bar. */}
-          <main className={`flex flex-1 flex-col ${session ? "pb-24 md:pb-0" : ""}`}>{children}</main>
+          <main className={`flex flex-1 flex-col ${session ? "pb-28 md:pb-0" : ""}`}>{children}</main>
         </div>
         <ReminderPopup />
       </body>
